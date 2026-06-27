@@ -1,0 +1,24 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { db } from '@/lib/firebase';
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+
+const emptyQ={question:'',optionA:'',optionB:'',optionC:'',optionD:'',answer:'A'};
+export default function Admin(){
+  const [login,setLogin]=useState(false),[pass,setPass]=useState('');
+  const [settings,setSettings]=useState({launched:false,duration:5});
+  const [questions,setQuestions]=useState([]),[students,setStudents]=useState([]);
+  const [q,setQ]=useState(emptyQ),[editId,setEditId]=useState(null);
+  useEffect(()=>{setLogin(localStorage.getItem('hits_admin')==='yes');
+    const u1=onSnapshot(doc(db,'quiz','settings'),s=>{if(s.exists())setSettings(s.data())});
+    const u2=onSnapshot(query(collection(db,'questions'),orderBy('createdAt','asc')),s=>setQuestions(s.docs.map(d=>({id:d.id,...d.data()}))));
+    const u3=onSnapshot(query(collection(db,'students'),orderBy('score','desc')),s=>setStudents(s.docs.map((d,i)=>({rank:i+1,id:d.id,...d.data()}))));
+    return()=>{u1();u2();u3();};
+  },[]);
+  function doLogin(e){e.preventDefault(); if(pass===process.env.NEXT_PUBLIC_ADMIN_PASSWORD){localStorage.setItem('hits_admin','yes');setLogin(true)}else alert('Wrong password');}
+  async function saveQ(e){e.preventDefault(); if(!q.question||!q.optionA||!q.optionB||!q.optionC||!q.optionD)return alert('Fill all fields'); if(editId){await updateDoc(doc(db,'questions',editId),q); setEditId(null)}else await addDoc(collection(db,'questions'),{...q,createdAt:serverTimestamp()}); setQ(emptyQ);}
+  function edit(item){setQ({question:item.question,optionA:item.optionA,optionB:item.optionB,optionC:item.optionC,optionD:item.optionD,answer:item.answer});setEditId(item.id)}
+  async function launch(v){await setDoc(doc(db,'quiz','settings'),{...settings,launched:v,duration:Number(settings.duration)||5},{merge:true});}
+  if(!login)return <main className="hero"><section className="card"><h1 className="title">Admin Login</h1><form onSubmit={doLogin} className="grid"><input type="password" placeholder="Admin Password" value={pass} onChange={e=>setPass(e.target.value)}/><button className="btn">Login</button></form></section></main>;
+  return <><header className="topbar"><b>Admin Dashboard</b><button className="btn secondary" onClick={()=>{localStorage.removeItem('hits_admin');location.reload()}}>Logout</button></header><main className="wrap"><section className="card"><div className="row"><span className="pill">Status: {settings.launched?'LIVE':'STOPPED'}</span><input style={{maxWidth:170}} type="number" min="1" value={settings.duration||5} onChange={e=>setSettings({...settings,duration:e.target.value})} placeholder="Duration minutes"/><button className="btn success" onClick={()=>launch(true)}>Launch Quiz</button><button className="btn danger" onClick={()=>launch(false)}>Stop Quiz</button></div></section><div className="spacer"/><div className="admin-layout"><section className="card"><h2>{editId?'Edit':'Add'} Question</h2><form onSubmit={saveQ} className="grid"><textarea placeholder="Question" value={q.question} onChange={e=>setQ({...q,question:e.target.value})}/><input placeholder="Option A" value={q.optionA} onChange={e=>setQ({...q,optionA:e.target.value})}/><input placeholder="Option B" value={q.optionB} onChange={e=>setQ({...q,optionB:e.target.value})}/><input placeholder="Option C" value={q.optionC} onChange={e=>setQ({...q,optionC:e.target.value})}/><input placeholder="Option D" value={q.optionD} onChange={e=>setQ({...q,optionD:e.target.value})}/><select value={q.answer} onChange={e=>setQ({...q,answer:e.target.value})}>{['A','B','C','D'].map(x=><option key={x}>{x}</option>)}</select><button className="btn">{editId?'Update':'Add'} Question</button>{editId&&<button type="button" className="btn secondary" onClick={()=>{setEditId(null);setQ(emptyQ)}}>Cancel Edit</button>}</form></section><section className="card"><h2>Questions ({questions.length})</h2>{questions.map((item,i)=><div className="question" key={item.id}><b>{i+1}. {item.question}</b><p className="small muted">Answer: {item.answer}</p><div className="row"><button className="btn secondary" onClick={()=>edit(item)}>Edit</button><button className="btn danger" onClick={()=>deleteDoc(doc(db,'questions',item.id))}>Delete</button></div></div>)}</section></div><div className="spacer"/><section className="card"><h2>Live Leaderboard</h2><table className="table"><thead><tr><th>Rank</th><th>Name</th><th>Reg No</th><th>Dept</th><th>Score</th><th>Status</th></tr></thead><tbody>{students.map(s=><tr key={s.id}><td>{s.rank}</td><td>{s.name}</td><td>{s.regNo}</td><td>{s.department}</td><td>{s.score||0}</td><td>{s.submitted?'Submitted':'Active'}</td></tr>)}</tbody></table></section></main></>;
+}
