@@ -1,0 +1,25 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { db } from "../lib/firebase";
+import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+
+export default function Home(){
+  const [student,setStudent]=useState(null); const [form,setForm]=useState({name:"",regNo:"",dept:"CSE"});
+  const [questions,setQuestions]=useState([]); const [status,setStatus]=useState({active:false,duration:300,startTime:null});
+  const [answers,setAnswers]=useState({}); const [submitted,setSubmitted]=useState(false); const [leader,setLeader]=useState([]); const [left,setLeft]=useState(0); const [msg,setMsg]=useState("");
+  useEffect(()=>onSnapshot(query(collection(db,"questions")),s=>setQuestions(s.docs.map(d=>({id:d.id,...d.data()})))),[]);
+  useEffect(()=>onSnapshot(doc(db,"settings","quiz"),s=>setStatus(s.exists()?s.data():{active:false,duration:300,startTime:null})),[]);
+  useEffect(()=>onSnapshot(query(collection(db,"students"),orderBy("score","desc")),s=>setLeader(s.docs.map(d=>({id:d.id,...d.data()})))),[]);
+  useEffect(()=>{ const saved=localStorage.getItem("hitsStudent"); if(saved) setStudent(JSON.parse(saved)); },[]);
+  useEffect(()=>{ if(!status.active||!status.startTime)return; const t=setInterval(()=>{ const start=status.startTime?.seconds?status.startTime.seconds*1000:Date.now(); const rem=Math.max(0,Math.floor((start+Number(status.duration||300)*1000-Date.now())/1000)); setLeft(rem); if(rem===0&&student&&!submitted) submitQuiz(true); },1000); return()=>clearInterval(t); },[status,student,submitted,answers,questions]);
+  async function register(){ if(!form.name.trim()||!form.regNo.trim()){setMsg("Name and Register Number required");return;} const ref=await addDoc(collection(db,"students"),{...form,score:0,submitted:false,createdAt:serverTimestamp()}); const s={id:ref.id,...form,score:0}; localStorage.setItem("hitsStudent",JSON.stringify(s)); setStudent(s); setMsg("Registered successfully. Wait for admin launch."); }
+  async function choose(q,opt){ if(submitted) return; const next={...answers,[q.id]:opt}; setAnswers(next); let score=0; questions.forEach(x=>{ if(next[x.id]===x.answer) score++; }); await updateDoc(doc(db,"students",student.id),{score}); }
+  async function submitQuiz(auto=false){ if(!student)return; let score=0; questions.forEach(x=>{ if(answers[x.id]===x.answer) score++; }); await updateDoc(doc(db,"students",student.id),{score,submitted:true,submittedAt:serverTimestamp()}); setSubmitted(true); setMsg(auto?"Time over. Quiz submitted.":"Quiz submitted successfully."); }
+  const mm=String(Math.floor(left/60)).padStart(2,"0"), ss=String(left%60).padStart(2,"0");
+  return <><Header/><main className="main"><div className="grid"><section className="card">
+    {!student&&<><h2>Student Registration</h2><p className="muted">Register and wait for admin to launch the quiz.</p><div className="row"><input className="input" placeholder="Student Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><input className="input" placeholder="Register Number" value={form.regNo} onChange={e=>setForm({...form,regNo:e.target.value})}/></div><select className="select" value={form.dept} onChange={e=>setForm({...form,dept:e.target.value})}>{["CSE","ECE","EEE","MECH","CIVIL","AIDS","IT","MBA","MCA","OTHER"].map(x=><option key={x}>{x}</option>)}</select><button className="btn" onClick={register}>Register</button>{msg&&<div className="notice">{msg}</div>}</>}
+    {student&&!status.active&&<div className="center"><span className="pill">Registered</span><h2>Welcome, {student.name}</h2><p className="muted">Please wait. Quiz will start after admin launch.</p>{msg&&<div className="notice success">{msg}</div>}</div>}
+    {student&&status.active&&<><div className="nav"><h2>Quiz Live</h2><div className="big">{mm}:{ss}</div></div>{submitted?<div className="center"><h2>Submitted ✅</h2><p className="muted">Check leaderboard for your rank.</p></div>:<>{questions.length===0?<div className="notice">No questions added yet.</div>:questions.map((q,i)=><div className="q" key={q.id}><b>{i+1}. {q.question}</b>{["A","B","C","D"].map(k=><button key={k} className="opt" onClick={()=>choose(q,k)} style={{background:answers[q.id]===k?"#dbeafe":"white"}}>{k}. {q["option"+k]}</button>)}</div>)}<button className="btn green" onClick={()=>submitQuiz(false)}>Submit Quiz</button></>}{msg&&<div className="notice success">{msg}</div>}</>}
+  </section><Leaderboard data={leader}/></div></main></> }
+function Header(){return <header className="top"><div className="wrap nav"><div><div className="brand">HITS Quiz Portal</div><div className="sub">Live common quiz platform</div></div><a className="btn2" href="/admin">Admin Login</a></div></header>}
+function Leaderboard({data}){return <aside className="card"><h3>Live Leaderboard</h3><table className="leader"><thead><tr><th>Rank</th><th>Name</th><th>Dept</th><th>Score</th></tr></thead><tbody>{data.slice(0,20).map((s,i)=><tr key={s.id}><td>{i+1}</td><td>{s.name}</td><td>{s.dept}</td><td>{s.score||0}</td></tr>)}</tbody></table></aside>}
