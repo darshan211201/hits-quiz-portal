@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { db } from '@/lib/firebase';
+import { db } from "../lib/firebase";
 import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 
 const departments = ['CSE','ECE','EEE','MECH','CIVIL','AIDS','IT','MBA','MCA','Others'];
