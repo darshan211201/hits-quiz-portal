@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
+import { db } from "../../lib/firebase";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 
 const emptyQ={question:'',optionA:'',optionB:'',optionC:'',optionD:'',answer:'A'};
