@@ -12,6 +12,15 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
+function rankedList(list) {
+  return [...list].sort((a, b) => {
+    if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+    const at = a.submittedAt?.seconds ?? Infinity;
+    const bt = b.submittedAt?.seconds ?? Infinity;
+    return at - bt;
+  });
+}
+
 export default function Home() {
   const [student, setStudent] = useState(null);
   const [form, setForm] = useState({ name: "", regNo: "", dept: "CSE" });
@@ -23,9 +32,11 @@ export default function Home() {
   });
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [leader, setLeader] = useState([]);
   const [left, setLeft] = useState(0);
   const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
 
   useEffect(
     () =>
@@ -60,6 +71,22 @@ export default function Home() {
     const saved = localStorage.getItem("hitsStudent");
     if (saved) setStudent(JSON.parse(saved));
   }, []);
+
+  // Keep submitted/score in sync with the actual Firestore doc (fixes
+  // "submit shows nothing happened" confusion + survives page reloads)
+  useEffect(() => {
+    if (!student?.id) return;
+    const unsub = onSnapshot(
+      doc(db, "students", student.id),
+      (s) => {
+        if (!s.exists()) return;
+        const data = s.data();
+        if (data.submitted) setSubmitted(true);
+      },
+      (e) => setErr("Connection issue: " + e.message)
+    );
+    return () => unsub();
+  }, [student?.id]);
 
   useEffect(() => {
     if (!status.active || !status.startTime) return;
@@ -104,7 +131,7 @@ export default function Home() {
   }
 
   async function choose(q, opt) {
-    if (submitted) return;
+    if (submitted || submitting) return;
 
     const next = { ...answers, [q.id]: opt };
     setAnswers(next);
@@ -114,25 +141,43 @@ export default function Home() {
       if (next[x.id] === x.answer) score++;
     });
 
-    await updateDoc(doc(db, "students", student.id), { score });
+    try {
+      await updateDoc(doc(db, "students", student.id), { score });
+      setErr("");
+    } catch (e) {
+      setErr("Could not save answer (check internet): " + e.message);
+    }
   }
 
   async function submitQuiz(auto = false) {
-    if (!student) return;
+    if (!student || submitted || submitting) return;
+
+    setSubmitting(true);
+    setErr("");
 
     let score = 0;
     questions.forEach((x) => {
       if (answers[x.id] === x.answer) score++;
     });
 
-    await updateDoc(doc(db, "students", student.id), {
-      score,
-      submitted: true,
-      submittedAt: serverTimestamp(),
-    });
+    try {
+      await updateDoc(doc(db, "students", student.id), {
+        score,
+        submitted: true,
+        submittedAt: serverTimestamp(),
+      });
 
-    setSubmitted(true);
-    setMsg(auto ? "Time over. Quiz submitted." : "Quiz submitted successfully.");
+      setSubmitted(true);
+      setMsg(auto ? "Time over. Quiz submitted." : "Quiz submitted successfully.");
+    } catch (e) {
+      setErr(
+        "Submit failed: " +
+          e.message +
+          ". Please check your internet and try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const mm = String(Math.floor(left / 60)).padStart(2, "0");
@@ -258,12 +303,17 @@ export default function Home() {
                       ))
                     )}
 
-                    <button className="btn green full" onClick={() => submitQuiz(false)}>
-                      Submit Quiz
+                    <button
+                      className="btn green full"
+                      disabled={submitting}
+                      onClick={() => submitQuiz(false)}
+                    >
+                      {submitting ? "Submitting..." : "Submit Quiz"}
                     </button>
                   </>
                 )}
 
+                {err && <div className="notice danger-text">{err}</div>}
                 {msg && <div className="notice success">{msg}</div>}
               </>
             )}
@@ -290,6 +340,8 @@ function Header() {
 }
 
 function Leaderboard({ data }) {
+  const ranked = rankedList(data);
+
   return (
     <aside className="card">
       <h3>Live Leaderboard</h3>
@@ -305,7 +357,7 @@ function Leaderboard({ data }) {
         </thead>
 
         <tbody>
-          {data.slice(0, 20).map((s, i) => (
+          {ranked.slice(0, 20).map((s, i) => (
             <tr key={s.id}>
               <td>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</td>
               <td>{s.name}</td>
