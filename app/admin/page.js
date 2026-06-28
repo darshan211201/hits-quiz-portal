@@ -15,6 +15,15 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
+function rankedList(list) {
+  return [...list].sort((a, b) => {
+    if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+    const at = a.submittedAt?.seconds ?? Infinity;
+    const bt = b.submittedAt?.seconds ?? Infinity;
+    return at - bt;
+  });
+}
+
 export default function Admin() {
   const [logged, setLogged] = useState(false);
   const [pass, setPass] = useState("");
@@ -120,6 +129,16 @@ export default function Admin() {
       },
       { merge: true }
     );
+    setMsg("Quiz launched. Timer started for all students.");
+  }
+
+  async function updateDuration() {
+    await setDoc(
+      doc(db, "settings", "quiz"),
+      { duration: Number(status.duration || 300) },
+      { merge: true }
+    );
+    setMsg("Duration updated. Students' timer will adjust immediately.");
   }
 
   async function stop() {
@@ -213,14 +232,46 @@ export default function Admin() {
 
               <div className="admin-actions">
                 <button className="btn green" onClick={launch}>
-                  Launch Quiz
+                  {status.active ? "Re-Launch (resets timer)" : "Launch Quiz"}
                 </button>
+
+                {status.active && (
+                  <button className="btn2" onClick={updateDuration}>
+                    Update Time
+                  </button>
+                )}
 
                 <button className="btn danger" onClick={stop}>
                   Stop
                 </button>
               </div>
             </div>
+
+            <div className="row">
+              {[5, 10, 15, 20, 30].map((mins) => (
+                <button
+                  key={mins}
+                  className="smallbtn"
+                  onClick={() =>
+                    setStatus({ ...status, duration: mins * 60 })
+                  }
+                >
+                  {mins} min
+                </button>
+              ))}
+            </div>
+
+            <p className="muted">
+              Currently set to{" "}
+              {Math.floor((status.duration || 300) / 60)} min{" "}
+              {(status.duration || 300) % 60
+                ? `${(status.duration || 300) % 60} sec`
+                : ""}
+              . Use the seconds box or presets above, then{" "}
+              <b>{status.active ? "Update Time" : "Launch Quiz"}</b> to apply.
+              {status.active &&
+                " 'Update Time' changes duration without restarting the timer. 'Re-Launch' restarts everyone's timer from zero."}
+            </p>
 
             <h3>{editing ? "Edit Question" : "Add Question"}</h3>
 
@@ -348,12 +399,18 @@ function Header() {
 }
 
 function StudentManager({ data, onDelete, onClear }) {
+  const ranked = rankedList(data);
+  const submittedCount = data.filter((s) => s.submitted).length;
+
   return (
     <aside className="card">
       <div className="nav">
         <div>
-          <h3>Registered Students</h3>
-          <p className="muted">Total: {data.length}</p>
+          <h3>🏆 Scoreboard</h3>
+          <p className="muted">
+            Total: {data.length} &middot; Submitted: {submittedCount} &middot;
+            Pending: {data.length - submittedCount}
+          </p>
         </div>
 
         <button className="btn danger" onClick={onClear}>
@@ -365,21 +422,31 @@ function StudentManager({ data, onDelete, onClear }) {
         <table className="leader">
           <thead>
             <tr>
-              <th>#</th>
+              <th>Rank</th>
               <th>Name</th>
               <th>Dept</th>
               <th>Score</th>
+              <th>Status</th>
               <th></th>
             </tr>
           </thead>
 
           <tbody>
-            {data.map((s, i) => (
+            {ranked.map((s, i) => (
               <tr key={s.id}>
-                <td>{i + 1}</td>
+                <td>
+                  {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
+                </td>
                 <td>{s.name}</td>
                 <td>{s.dept}</td>
                 <td>{s.score || 0}</td>
+                <td>
+                  {s.submitted ? (
+                    <span className="pill">✅ Submitted</span>
+                  ) : (
+                    <span className="pill live">⏳ In progress</span>
+                  )}
+                </td>
                 <td>
                   <button className="smallbtn" onClick={() => onDelete(s.id)}>
                     Delete
