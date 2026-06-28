@@ -67,19 +67,37 @@ export default function Home() {
     []
   );
 
+  function resetStudentSession(reason) {
+    localStorage.removeItem("hitsStudent");
+    setStudent(null);
+    setAnswers({});
+    setSubmitted(false);
+    setSubmitting(false);
+    setErr("");
+    setMsg(reason);
+  }
+
   useEffect(() => {
     const saved = localStorage.getItem("hitsStudent");
     if (saved) setStudent(JSON.parse(saved));
   }, []);
 
   // Keep submitted/score in sync with the actual Firestore doc (fixes
-  // "submit shows nothing happened" confusion + survives page reloads)
+  // "submit shows nothing happened" confusion + survives page reloads).
+  // Also detects when admin has cleared/deleted this student's record
+  // (stale localStorage) and sends them back to register instead of
+  // letting every action fail silently/with a confusing error.
   useEffect(() => {
     if (!student?.id) return;
     const unsub = onSnapshot(
       doc(db, "students", student.id),
       (s) => {
-        if (!s.exists()) return;
+        if (!s.exists()) {
+          resetStudentSession(
+            "Your registration was reset by admin. Please register again."
+          );
+          return;
+        }
         const data = s.data();
         if (data.submitted) setSubmitted(true);
       },
@@ -145,7 +163,13 @@ export default function Home() {
       await updateDoc(doc(db, "students", student.id), { score });
       setErr("");
     } catch (e) {
-      setErr("Could not save answer (check internet): " + e.message);
+      if (e.code === "not-found") {
+        resetStudentSession(
+          "Your registration was reset by admin. Please register again."
+        );
+      } else {
+        setErr("Could not save answer (check internet): " + e.message);
+      }
     }
   }
 
@@ -169,13 +193,19 @@ export default function Home() {
 
       setSubmitted(true);
       setMsg(auto ? "Time over. Quiz submitted." : "Quiz submitted successfully.");
+      setSubmitting(false);
     } catch (e) {
-      setErr(
-        "Submit failed: " +
-          e.message +
-          ". Please check your internet and try again."
-      );
-    } finally {
+      if (e.code === "not-found") {
+        resetStudentSession(
+          "Your registration was reset by admin. Please register again."
+        );
+      } else {
+        setErr(
+          "Submit failed: " +
+            e.message +
+            ". Please check your internet and try again."
+        );
+      }
       setSubmitting(false);
     }
   }
@@ -226,17 +256,22 @@ export default function Home() {
                   }
                 >
                   {[
-                    "CSE",
-                    "ECE",
-                    "EEE",
-                    "MECH",
-                    "CIVIL",
-                    "AIDS",
-                    "IT",
-                    "MBA",
-                    "MCA",
-                    "OTHER",
-                  ].map((x) => (
+  "B.Sc CSE (CS)",
+  "B.Sc CSE (General)",
+  "B.Sc AIDA",
+  "B.Sc DS",
+  "BCA",
+  "MCA",
+  "B.Sc Food Technology",
+  "B.Sc Psychology",
+  "M.Sc AIDA",
+  "M.Sc Food Technology",
+  "M.Sc Mathematics (Integrated)",
+  "B.Sc Mathematics & Data Science",
+  "B.Sc Avionics",
+  "B.Sc Aircraft Maintenance Engineering",
+  "OTHER"
+].map((x) => (
                     <option key={x}>{x}</option>
                   ))}
                 </select>
